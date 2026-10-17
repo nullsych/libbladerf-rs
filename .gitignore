@@ -16,7 +16,9 @@ Cargo.lock
 TODO.md
 .plans/
 docs/
-resources/
+resources/5G
+resources/bladeRF
+resources/kalibrate-bladeRF
 fuzz/
 examples/kalibrate
 examples/kalibrate-5g
