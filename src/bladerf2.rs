@@ -1,6 +1,11 @@
-//! BladeRF2 (xA4/xA9) support is not yet implemented.
+//! BladeRF2 driver module.
 //!
-//! This module is a stub that prevents compilation when the `bladerf2`
-//! feature is enabled. Support for BladeRF2 hardware is not yet available.
+//! Re-exports the primary API surface for the BladeRF2 (xA4/xA9) SDR,
+//! including the [`BladeRf2`] device handle, session types, streaming
+//! builders, hardware abstraction types, and DC calibration table management.
 
-compile_error!("bladerf2 support is not yet implemented");
+// compile_error!("bladerf2 support is not yet implemented");
+
+pub mod board;
+
+pub use board::{BLADERF2_USB_PID, BLADERF2_USB_VID, BladeRf2};
