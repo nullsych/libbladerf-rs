@@ -14,7 +14,7 @@ categories = [
 ]
 
 [workspace]
-members = [".", "examples/calibrate", "examples/dc-cal-table", "examples/flash-firmware", "examples/flash-fpga", "examples/info", "examples/rx-async", "examples/rx-tx"]
+members = [".", "examples/bladerf1/calibrate", "examples/bladerf1/dc-cal-table", "examples/bladerf1/flash-firmware", "examples/bladerf1/flash-fpga", "examples/bladerf1/info", "examples/bladerf1/rx-async", "examples/bladerf1/rx-tx"]
 
 [dependencies]
 bitflags = "2"
