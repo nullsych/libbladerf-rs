@@ -5,6 +5,7 @@
 //! match on. Both enums are `#[non_exhaustive]`.
 
 use crate::protocol::nios::NiosPacketError;
+use crate::version::SemanticVersion;
 use std::fmt;
 
 /// Result type alias for this crate.
@@ -136,6 +137,30 @@ pub enum Error {
     /// The requested feature is not supported on this hardware or configuration.
     #[error("unsupported feature: {0}")]
     Unsupported(&'static str),
+
+    /// The FX3 firmware is not compatible with this driver or the loaded FPGA.
+    ///
+    /// `required` is the minimum firmware version, when the compatibility
+    /// table names one.
+    #[error("firmware v{found} must be updated")]
+    UpdateFirmware {
+        /// Firmware version reported by the device.
+        found: SemanticVersion,
+        /// Minimum compatible firmware version, if known.
+        required: Option<SemanticVersion>,
+    },
+
+    /// The loaded FPGA bitstream is not compatible with the FX3 firmware.
+    ///
+    /// `required` is the minimum FPGA version, when the compatibility table
+    /// names one.
+    #[error("FPGA v{found} must be updated")]
+    UpdateFpga {
+        /// FPGA version reported by the device.
+        found: SemanticVersion,
+        /// Minimum compatible FPGA version, if known.
+        required: Option<SemanticVersion>,
+    },
 
     /// A DC calibration sub-module failed to converge.
     #[error("calibration failed: {0}")]
@@ -316,7 +341,9 @@ impl Error {
             Self::WouldBlock => ErrorKind::WouldBlock,
             Self::NotFound => ErrorKind::NotFound,
             Self::Argument(_) | Self::InvalidSampleRate(_) => ErrorKind::InvalidArgument,
-            Self::Unsupported(_) => ErrorKind::Unsupported,
+            Self::Unsupported(_) | Self::UpdateFirmware { .. } | Self::UpdateFpga { .. } => {
+                ErrorKind::Unsupported
+            }
             Self::NotInitialized
             | Self::StreamClosed
             | Self::StreamNotStarted

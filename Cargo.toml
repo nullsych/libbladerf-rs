@@ -89,6 +89,11 @@ path = "tests/bladerf1_async/main.rs"
 required-features = ["bladerf1", "tokio"]
 
 [[test]]
+name = "bladerf2"
+path = "tests/bladerf2/main.rs"
+required-features = ["bladerf2"]
+
+[[test]]
 name = "unit"
 path = "tests/unit/main.rs"
 

@@ -1,17 +1,41 @@
 //! Board-level operations for BladeRF2.
 //!
-//! This module contains [`BladeRf2`] — the primary device handle.
+//! This module contains [`BladeRf2`] — the primary device handle — and the
+//! session types that gate access to the device's USB alternate settings:
+//!
+//! - [`RfLinkSession`] — normal RF operation
+//! - [`FlashSession`] — SPI flash and calibration data access
+//!
+//! # Ownership model
+//!
+//! [`BladeRf2`] owns the USB device and the `NiosCore` that serializes all
+//! register I/O. Session types borrow `&mut NiosCore`, so the Rust borrow
+//! checker guarantees that at most one session is active at a time.
 
+pub(crate) mod calibration;
+pub mod capabilities;
+mod compatibility;
+mod debug;
+mod firmware;
+pub(crate) mod fpga;
+use crate::bladerf2::hardware::spi_flash::{FlashId, FlashMeta, assumed_flash_size};
 use crate::error::Error;
 use crate::maybe_future::{Op, await_maybe, sleep};
 use crate::nios_client::NiosCore;
 use crate::usb::{
-    BladeRf1DeviceCommands, BladeRf1UsbInterfaceCommands, DeviceCommands, UsbTransport,
+    BladeRf1DeviceCommands, BladeRf1UsbInterfaceCommands, DeviceCommands, UsbAltSetting,
+    UsbInterfaceCommands, UsbTransport, VendorRequest,
+};
+use crate::version::SemanticVersion;
+pub use calibration::DEFAULT_VCTCXO_TRIM;
+pub use capabilities::Capabilities;
+pub use fpga::{
+    BLADERF_FLASH_FPGA_SIZE_A4, BLADERF_FLASH_FPGA_SIZE_A5, BLADERF_FLASH_FPGA_SIZE_A9, FpgaSource,
+    fpga_bytes,
 };
 #[cfg(not(target_os = "android"))]
 use nusb::DeviceInfo;
 use nusb::{Device, MaybeFuture, Speed};
-use std::fmt;
 
 /// Nuand BladeRF2 USB Vendor ID.
 pub const BLADERF2_USB_VID: u16 = 0x2CF0;
@@ -34,6 +58,9 @@ fn is_bladerf2(dev: &DeviceInfo) -> bool {
 ///
 /// Every I/O method returns a [`MaybeFuture`]: call `.wait()` to block the
 /// current thread (native targets only) or `.await` it from async code.
+///
+/// On construction the FX3 firmware version is checked against the
+/// compatibility table and the device waits for firmware readiness.
 pub struct BladeRf2 {
     device: Device,
     nios: NiosCore,
@@ -58,6 +85,13 @@ impl BladeRf2 {
             log::debug!("Product: {product:?}");
             log::debug!("Serial: {serial:?}");
             log::debug!("Speed: {:?}", device.speed());
+            let firmware: SemanticVersion = device.fx3_firmware_version().await?.parse()?;
+            log::debug!("Firmware: v{firmware}");
+            log::trace!(
+                "Firmware capabilities: {:?}",
+                Capabilities::from_firmware(firmware)
+            );
+            compatibility::check_firmware(firmware)?;
             let interface = await_maybe(device.detach_and_claim_interface(0)).await?;
             let speed = device.speed().ok_or(Error::UnsupportedSpeed)?;
             if speed < Speed::High {
@@ -128,6 +162,11 @@ impl BladeRf2 {
     /// Opens a BladeRF2 from an already opened [`nusb::Device`].
     ///
     /// The device must be a BladeRF2; no VID/PID check is performed.
+    ///
+    /// # Errors
+    /// Returns [`Error::UpdateFirmware`] for firmware older than 2.0.0, or an
+    /// error if interface 0 cannot be claimed, the bus speed is below
+    /// High-Speed, or the firmware never reports ready.
     pub fn from_device(device: Device) -> impl MaybeFuture<Output = crate::Result<Self>> {
         Self::build(device)
     }
@@ -137,16 +176,94 @@ impl BladeRf2 {
         self.device.serial()
     }
 
-    /// Returns the FX3 firmware version as a string.
-    pub fn fx3_firmware_version(&self) -> impl MaybeFuture<Output = crate::Result<String>> {
-        self.device.fx3_firmware_version()
+    /// Creates an [`RfLinkSession`] for normal RF operation.
+    ///
+    /// Switches the USB alt setting to RfLink if not already there.
+    pub fn rf_link_session(
+        &mut self,
+    ) -> impl MaybeFuture<Output = crate::Result<RfLinkSession<'_>>> {
+        Op::new(async move {
+            self.nios.usb_change_setting(UsbAltSetting::RfLink).await?;
+            Ok(RfLinkSession {
+                device: &self.device,
+                nios: &mut self.nios,
+            })
+        })
+    }
+
+    /// Creates a [`FlashSession`] for SPI flash and calibration access.
+    ///
+    /// Identifies the flash chip by its JEDEC ID (firmware >= 2.3.0). When
+    /// the chip is unknown or cannot be queried, the capacity is derived
+    /// from the FPGA size in the calibration region, as libbladeRF does:
+    /// 128 Mbit for xA9, 32 Mbit otherwise.
+    ///
+    /// # Errors
+    /// Returns [`Error::StreamsActive`] for any live stream claim.
+    pub fn flash_session(&mut self) -> impl MaybeFuture<Output = crate::Result<FlashSession<'_>>> {
+        Op::new(async move {
+            self.nios.streams.require_idle()?;
+            let firmware: SemanticVersion = self.device.fx3_firmware_version().await?.parse()?;
+            self.nios
+                .usb_change_setting(UsbAltSetting::SpiFlash)
+                .await?;
+            let flash_id =
+                if Capabilities::from_firmware(firmware).contains(Capabilities::FW_FLASH_ID) {
+                    let result = self
+                        .nios
+                        .control()
+                        .await?
+                        .usb_vendor_cmd_int(VendorRequest::QueryFlashId)
+                        .await?;
+                    Some(FlashId::from_query(result))
+                } else {
+                    log::debug!(
+                        "FX3 firmware v{firmware} does not support SPI flash ID. \
+                     A firmware update is recommended."
+                    );
+                    None
+                };
+            let size = match flash_id.map(FlashId::size_bytes) {
+                Some(Ok(size)) => size,
+                decoded => {
+                    if let Some(Err(e)) = decoded {
+                        log::debug!("Could not decode flash ID {flash_id:x?}: {e}");
+                    }
+                    let cal = self.nios.control().await?.read_calibration_page().await?;
+                    let fpga_size = calibration::fpga_size_from_cal(&cal).ok();
+                    let size = assumed_flash_size(fpga_size);
+                    log::debug!(
+                        "Assuming {} Mbit SPI flash for FPGA size {fpga_size:?}",
+                        size >> 17
+                    );
+                    size
+                }
+            };
+            Ok(FlashSession {
+                nios: &mut self.nios,
+                flash_meta: FlashMeta::new(size)?,
+                flash_id,
+            })
+        })
     }
 }
 
-impl fmt::Debug for BladeRf2 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("BladeRf2")
-            .field("connection", &self.nios)
-            .finish_non_exhaustive()
-    }
+/// Session for normal RF operation.
+///
+/// Borrows `&mut NiosCore` from [`BladeRf2`], so the borrow checker prevents
+/// concurrent access.
+pub struct RfLinkSession<'a> {
+    device: &'a Device,
+    pub(crate) nios: &'a mut NiosCore,
+}
+
+/// Session for SPI flash and calibration data access.
+///
+/// Owns flash metadata queried from the device at session creation.
+/// Returns [`Error::StreamsActive`] if any stream holds an endpoint claim when
+/// [`BladeRf2::flash_session`] is called.
+pub struct FlashSession<'a> {
+    pub(crate) nios: &'a mut NiosCore,
+    pub(crate) flash_meta: FlashMeta,
+    pub(crate) flash_id: Option<FlashId>,
 }
