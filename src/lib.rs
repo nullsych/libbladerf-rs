@@ -9,7 +9,7 @@
 //! | Flag        | Default | Effect                                  |
 //! |-------------|---------|-----------------------------------------|
 //! | `bladerf1`  | yes*    | BladeRF1 support (x40/x115)            |
-//! | `bladerf2`  | no      | BladeRF2 support — **stub only**       |
+//! | `bladerf2`  | no      | BladeRF2 support — **early, device identification only** |
 //! | `xb100`     | yes     | XB-100 expansion board support         |
 //! | `xb200`     | yes     | XB-200 transverter board support       |
 //! | `xb300`     | yes     | XB-300 amplifier board support         |

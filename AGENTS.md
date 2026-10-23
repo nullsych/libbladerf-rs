@@ -1,6 +1,6 @@
 # libbladerf-rs
 
-Pure Rust driver for the Nuand BladeRF1 SDR. No C libbladeRF dependency. Based on [nusb] for USB transport.
+Pure Rust driver for the Nuand BladeRF1 SDR, with early BladeRF2 support (device identification only). No C libbladeRF dependency. Based on [nusb] for USB transport.
 
 [nusb]: https://github.com/kevinmehall/nusb
 
@@ -22,6 +22,8 @@ All commands run from the **repository root**:
 | Hardware tests, tokio only | `cargo test --no-default-features --features bladerf1,xb200,tokio --tests -- --test-threads=1` |
 | wasm32 check | `cargo +stable check --target wasm32-unknown-unknown --features bladerf1 --lib` |
 | Run a single hardware test | `cargo test --features bladerf1 --test bladerf1 -- <test_name>` |
+| BladeRF2 unit tests (no hardware) | `cargo test --features bladerf2 --lib bladerf2` |
+| BladeRF2 hardware tests | `cargo test --features bladerf2 --test bladerf2 -- --test-threads=1` |
 | Clippy | `cargo clippy --all-targets -- -D warnings` |
 | Format check | `cargo fmt --all --check` |
 | Format (requires nightly) | `rustup run nightly -- cargo fmt` |
@@ -55,10 +57,10 @@ Rust targets are installed automatically by `check.sh`. The
 
 ### Examples
 
-7 examples are workspace members (build with `-p`):
+8 examples are workspace members, grouped per board under `examples/bladerf1/` and `examples/bladerf2/` (build with `-p`; package names are unique across the workspace, so the BladeRF2 `info` example is `info-bladerf2`):
 
 ```bash
-cargo build -p info -p calibrate -p dc-cal-table -p rx-tx -p rx-async -p flash-firmware -p flash-fpga
+cargo build -p info -p calibrate -p dc-cal-table -p rx-tx -p rx-async -p flash-firmware -p flash-fpga -p info-bladerf2
 ```
 
 Standalone examples (`bench-stream`, `kalibrate`, `kalibrate-5g`) have their own `[workspace]` in `Cargo.toml` and must be built from their own directories.
@@ -137,7 +139,10 @@ Entering `FlashSession` or `ConfigSession` while any stream owns an endpoint ret
 | `src/nios_client.rs` | `NiosCore` — all register I/O goes through here |
 | `src/usb.rs` | `UsbTransport` — concrete nusb wrapper, USB vendor commands |
 | `src/channel.rs`, `src/error.rs`, `src/version.rs`, `src/range.rs`, `src/flash.rs` | Pure data types |
-| `src/bladerf2.rs` | **Stub only, not implemented** |
+| `src/bladerf2.rs` | BladeRF2 public re-export surface (early: device identification only) |
+| `src/bladerf2/board.rs` | `BladeRf2` struct, constructors, `RfLinkSession`/`FlashSession` constructors |
+| `src/bladerf2/board/*.rs` | `capabilities` (version-derived bitflags), `compatibility` (fw↔FPGA tables), `calibration` (flash `B`/`DAC` fields), `fpga`, `firmware` |
+| `src/bladerf2/hardware/spi_flash.rs` | `FlashId`, `FlashMeta`, page reads, flash-size fallback |
 
 `src/bladerf1.rs` is the public re-export surface for the board API. `src/usb.rs` and `src/nios_client.rs` are `pub(crate)`: nothing outside the crate can reach a `NiosCore` or `UsbTransport`. Chip-driver structs (`Lms6002d`, `Si5338`, `Dac161s055`) and their I/O methods are `pub(crate)`; only their data types (`GainDb`, `GainStage`, `Band`, `Loopback`, `DcCalModule`, `RationalRate`, ...) are public.
 
@@ -205,7 +210,7 @@ Implementation rules (see `src/maybe_future.rs` and `MIGRATION.md`; `ASYNC_PLAN.
 | Flag | Default | Effect |
 |------|---------|--------|
 | `bladerf1` | yes (via xb*) | BladeRF1 support (x40/x115) |
-| `bladerf2` | no | BladeRF2 support (xA4/xA9) — **stub only, not implemented** |
+| `bladerf2` | no | BladeRF2 support (xA4/xA5/xA9) — **early, device identification only**; implies `bladerf1` |
 | `xb100` | yes | XB-100 expansion board (implies `bladerf1`) |
 | `xb200` | yes | XB-200 expansion board (implies `bladerf1`) |
 | `xb300` | yes | XB-300 expansion board (implies `bladerf1`) |
@@ -246,7 +251,7 @@ Default features enable all three expansion board features (which each imply `bl
 - **Single `MaybeFuture` API instead of sync + `_async` twins.** Matches hackrf-nusb / hydrasdr-rs so seify's bladerf1 backend can be two thin adapters (`.wait()` / `.await`) over one API. One definition per method, no drift.
 - **Runtime agnostic, with nusb's one exception mirrored.** Transfers complete on nusb's own event thread, sleeps use `futures-timer`'s thread, `.wait()` uses our `block_on`; none of this depends on an executor. The single non-agnostic point is nusb's *blocking syscalls* (device open, interface claim, alternate setting, clear halt, `list_devices` on Windows), which nusb offloads through exactly two integrations: the `blocking` crate (nusb feature `smol`) or `tokio::spawn_blocking` (nusb feature `tokio`). We forward both under the same names, like hackrf-nusb and hydrasdr-rs. They are needed only to `.await`: the blocking `.wait()` path routes those syscalls through nusb's inline `MaybeFuture::wait` via a thread-local guard (`await_maybe`), so no runtime is required.
   - **`smol` is opt-in and pulls no async runtime.** Despite the name it only adds the `blocking` crate, an executor-agnostic thread pool that works under tokio, smol, async-std, `futures::executor` and `block_on`. `cargo tree -e no-dev --features bladerf1` shows no tokio/smol/async-io. A tokio application that wants to `.await` can enable our `smol` feature and never enable our `tokio` feature.
-  - **`tokio` is optional and exists for parity.** It lets a tokio user run nusb's syscalls on tokio's blocking pool. It only forwards `nusb/tokio`; the crate itself adds no direct tokio dependency. The dev-dependency on tokio serves `tests/bladerf1_async` and `examples/rx-async` only. Dropping the `tokio` feature entirely (keeping `blocking`) would lose nothing functionally; it is kept for consistency with nusb and the other two drivers. Revisit if "no tokio in the driver's tree" becomes a requirement.
+  - **`tokio` is optional and exists for parity.** It lets a tokio user run nusb's syscalls on tokio's blocking pool. It only forwards `nusb/tokio`; the crate itself adds no direct tokio dependency. The dev-dependency on tokio serves `tests/bladerf1_async` and `examples/bladerf1/rx-async` only. Dropping the `tokio` feature entirely (keeping `blocking`) would lose nothing functionally; it is kept for consistency with nusb and the other two drivers. Revisit if "no tokio in the driver's tree" becomes a requirement.
   - A `blocking_op` adapter that ran the syscalls inline on native was tried and removed: it diverged from nusb's semantics and forced async blocks around single nusb calls.
 - **`perform_format_config` / `perform_format_deconfig` are global.** The format GPIO bits (PACKET, TIMESTAMP, 8BIT_MODE, HIGHLY_PACKED) are global, not per-channel. These methods do not take a `channel` parameter.
 - **GPIO-based init state check, not a cached flag.** `RfLinkSession::require_initialized()` reads the config GPIO register and checks `(cfg & 0x7f) != 0`. This matches the C library's `CHECK_BOARD_STATE` pattern. A cached `initialized: bool` flag on `NiosCore` was tried and rejected because `initialize()` calls guarded methods internally (e.g. `set_frequency`, `set_gain_mode`), creating a circular dependency: the flag is `false` until the end of `initialize()`, but guarded sub-operations need it `true`. Working around this required setting the flag early and clearing on failure — a fragile pattern. The GPIO check eliminates the problem entirely: `initialize()` writes `0x57` to GPIO first, so subsequent `require_initialized()` calls naturally see the initialized state. No ordering issue, no flag management, no `mark_uninitialized()` needed at de-init sites (FPGA reload resets NIOS, which clears GPIO to `0x00`). The extra USB roundtrip per guard check is negligible — every guarded method already does USB I/O.
@@ -268,12 +273,12 @@ Test helpers (backup/restore) use extension traits defined in each test file sin
 - **Rust bitwise operator precedence.** `&` and `|` bind looser than `==`/`!=`. `val & mask != 0` parses as `val & (mask != 0)` — always use `(val & mask) != 0`. Same for `|` with comparisons.
 - **Formatting requires nightly.** `rustfmt.toml` enables `format_code_in_doc_comments=true`, which is nightly-only. Use `rustup run nightly -- cargo fmt`.
 - **`target-cpu=native` is a local-only optimization; CI neutralizes it via env.** `.cargo/config.toml` sets `target-cpu=native` for `x86_64-unknown-linux-gnu` so local builds and hardware benches get real performance. But those rustflags also apply to build scripts and proc macros, which run inside the compiler process, and an LLVM codegen bug (rust-lang/rust#141099) makes rustc SIGILL on some CPU models in GitHub's runner pool — a different job fails on every run. Every workflow therefore keeps `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C target-cpu=x86-64"` in its top-level `env:`; cargo appends env rustflags *after* the config's and rustc honors the *last* `-C target-cpu`. Keep that env var in any new workflow and do not change the append/last-wins ordering.
-- **`bladerf2` feature is a stub.** `src/bladerf2.rs` exists but is not implemented. Don't try to use it.
+- **`bladerf2` is early work.** It implements device identification only (open, firmware/FPGA versions, capabilities, compatibility check, flash ID/size, calibration region, FPGA source). RF control (AD9361), streaming, and FPGA loading/flashing are not implemented. It follows the C libbladeRF (`resources/bladeRF/host/libraries/libbladeRF/src/board/bladerf2/`) and mirrors the BladeRF1 file layout and API names; per-board copies (e.g. `spi_flash`, `FpgaSource`) are intentional. The feature implies `bladerf1` because `usb`, `nios_client`, and `maybe_future` are still gated on it and `NiosCore` depends on BladeRF1 types. BladeRF2 hardware tests open the device per test (`tests/common/bladerf2.rs`) instead of sharing a `LazyLock`.
 - **Integration tests require `--test-threads=1`.** `.cargo/config.toml` sets `test.threads = 1` but explicit `-- --test-threads=1` is still recommended.
 - **`scripts/check.sh` preserves build artifacts.** It does not delete `Cargo.lock` or clean the target directory.
 - **Releases are GitHub Actions only.** The `workflow_dispatch` pipeline in `.github/workflows/release.yml` (`ci` → `bump_and_tag` → `github_release` → `publish`) is the sole release path — run it from GitHub, never `cargo release` locally. It uses `cargo-release` with stock defaults (no `release.toml`): no pre-release hook, and the reusable `ci.yml` workflow (called via `workflow_call`) must pass before `bump_and_tag`. The pipeline does not rely on cargo-release's own publish or push (`--no-publish`/`--no-push`; `bump_and_tag` pushes the bump commit and tag itself, and `publish` runs `cargo publish`). See `MAINTAINERS.md` for the full workflow.
 - **Conventional Commits enforced by a `commit-msg` hook.** `.husky/commit-msg` validates each message with `git-cliff` (`cliff.toml` sets `require_conventional=true`) via husky-rs (`core.hooksPath = .husky`, installs on `cargo build`/`cargo test`, skip with `NO_HUSKY_HOOKS=1`). `scripts/check.sh` and the `conventional-commits` job in `ci.yml` (which runs on every push/PR to main and gates releases) re-check all unreleased commits as a backstop.
 - **No OTP region access.** Manufacturing-only operations. Don't add them.
-- **No gain calibration.** The table-based gain calibration API is bladeRF2-specific. BladeRF1 has no calibration tables.
+- **No gain calibration on BladeRF1.** The table-based gain calibration API is bladeRF2-specific (`device_calibration.c`); BladeRF1 has no calibration tables. It is not yet ported for BladeRF2.
 - **Stream build/teardown bench requires `BatchSize::PerIteration`.** `iter_batched` with `SmallInput` (the default) calls setup multiple times before running any routine, collecting results into a `Vec`. Since `BladeRf1::from_first()` claims the USB interface exclusively, the second setup call fails with EBUSY. `PerIteration` forces batch_size=1 so each setup→routine→close cycle completes before the next setup.
 - **Cached state flags that guard methods called during initialization create circular dependencies.** If `require_initialized()` checks a flag that `initialize()` sets, and `initialize()` calls guarded methods, the flag must be set before those calls — but then must be cleared on failure. This is fragile. Prefer hardware-readable state (e.g. GPIO register) when the hardware already tracks the state.

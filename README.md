@@ -4,7 +4,8 @@
 [![Build Status](https://github.com/ratzrattillo/libbladerf-rs/workflows/CI/badge.svg)](https://github.com/ratzrattillo/libbladerf-rs/actions)
 [![Downloads](https://img.shields.io/crates/d/libbladerf-rs.svg)](https://crates.io/crates/libbladerf-rs)
 
-Pure Rust driver for the Nuand BladeRF1 (x40/x115) SDR. No C libbladeRF dependency.
+Pure Rust driver for the Nuand BladeRF1 (x40/x115) SDR, with early BladeRF2
+(xA4/xA5/xA9) support in progress. No C libbladeRF dependency.
 USB transport via [nusb]. Supports Windows, macOS, Linux, Android (via file
 descriptor) and WebUSB (`wasm32-unknown-unknown`). Every I/O method can be
 used synchronously or asynchronously.
@@ -22,7 +23,7 @@ metadata remains 0.5.2 until release. See [MIGRATION.md](MIGRATION.md).
 | Flag        | Default | Effect                                  |
 |-------------|---------|-----------------------------------------|
 | `bladerf1`  | yes\*   | BladeRF1 support (x40/x115)            |
-| `bladerf2`  | no      | BladeRF2 support — **stub only**       |
+| `bladerf2`  | no      | BladeRF2 support — **early, device identification only** (implies `bladerf1`) |
 | `xb100`     | yes     | XB-100 LED expansion board             |
 | `xb200`     | yes     | XB-200 transverter board               |
 | `xb300`     | yes     | XB-300 amplifier board                 |
@@ -236,13 +237,44 @@ Choose an application directory explicitly with `load_dc_cal_tables_from_dir`
 values and install them with `set_dc_cal_table`; filesystem helpers require an
 available native filesystem and the `serde` feature.
 
+## BladeRF2 (early development)
+
+BladeRF2 support has taken its first steps behind the opt-in `bladerf2`
+feature. The implementation follows the C libbladeRF closely and reuses the
+BladeRF1 file layout and API shape (`BladeRf2`, `RfLinkSession`,
+`FlashSession`). So far it covers **device identification** only:
+
+- discovery and open by USB VID/PID (`0x2CF0:0x5250`) or serial number
+- FX3 firmware version and the minimum-firmware check (>= 2.0.0)
+- SPI flash JEDEC ID and size, with libbladeRF's fallback when the chip is unknown
+- calibration region: FPGA size (xA4/xA5/xA9) and VCTCXO trim
+- FPGA status, version and source
+- version-derived `Capabilities` and the firmware/FPGA compatibility table
+
+```rust
+use libbladerf_rs::MaybeFuture;
+use libbladerf_rs::bladerf2::BladeRf2;
+
+let mut dev = BladeRf2::from_first().wait()?;
+let fpga_size = dev.flash_session().wait()?.read_flash_fpga_size().wait()?;
+let mut rf = dev.rf_link_session().wait()?;
+println!("{fpga_size:?}, FPGA v{}", rf.fpga_version().wait()?);
+rf.check_compatibility().wait()?;
+```
+
+RF control (AD9361), streaming, FPGA loading and flashing are not implemented
+yet. The feature currently implies `bladerf1`, because the shared NIOS/USB
+core still depends on BladeRF1 types.
+
 ## Examples
 
-Git-tracked examples (build and run from the repository root):
+Git-tracked examples live in `examples/bladerf1/` and `examples/bladerf2/`
+(build and run from the repository root by package name):
 
 | Package | Purpose |
 |---------|---------|
 | `info` | Basic device info and FPGA version |
+| `info-bladerf2` | BladeRF2 identification: versions, FPGA size/source, flash, calibration, capabilities |
 | `rx-tx` | Plain SC16 RX and a TX helper with explicit lifecycle |
 | `rx-async` | RX streaming with the awaited API on tokio (`--features tokio`) |
 | `calibrate` | DC calibration on LMS6002D |
@@ -254,6 +286,7 @@ Git-tracked examples (build and run from the repository root):
 cargo run -p info
 cargo run -p rx-tx
 cargo run -p rx-async
+cargo run -p info-bladerf2
 ```
 
 ## Supported features
@@ -277,7 +310,7 @@ cargo run -p rx-async
 
 ## Not supported (vs C libbladeRF)
 
-- **BladeRF2** — stub only, not implemented
+- **BladeRF2** — device identification only; RF control, streaming and flashing not yet implemented
 - **Synchronous API** — `bladerf_sync_config/rx/tx` not implemented
 - **Bootloader** — jump to bootloader, load firmware from bootloader
 - **OTP (one-time programmable)** — read/write/lock
@@ -287,7 +320,7 @@ cargo run -p rx-async
 - **USB reset on open** — configuration option
 - **Multi-device / MIMO** — clock sync helpers
 - **Tuning mode get** — missing getter
-- **Gain calibration tables** — bladeRF2-specific (not applicable to BladeRF1)
+- **Gain calibration tables** — bladeRF2-specific (not applicable to BladeRF1; not yet ported for BladeRF2)
 
 ## Developers
 
@@ -344,6 +377,12 @@ cargo test --test unit
 
 ```bash
 cargo test --features bladerf1 --tests -- --test-threads=1
+```
+
+### Integration tests (requires BladeRF2)
+
+```bash
+cargo test --features bladerf2 --test bladerf2 -- --test-threads=1
 ```
 
 ### Specific test
