@@ -2,7 +2,7 @@
 
 use crate::bladerf2::board::BladeRf2;
 use crate::error::Result;
-use crate::usb::BladeRf1DeviceCommands;
+use crate::usb::Fx3DeviceCommands;
 use crate::version::SemanticVersion;
 use nusb::MaybeFuture;
 

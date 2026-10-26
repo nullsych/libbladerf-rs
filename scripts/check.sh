@@ -34,13 +34,14 @@ cargo +1.88.0 check --no-default-features --features bladerf1,xb200,tokio --lib
 # Runtime-free sync path: no `smol`/`tokio`, so no async runtime is compiled in.
 cargo +1.88.0 check --no-default-features --features bladerf1 --lib
 cargo +1.88.0 check --no-default-features --features bladerf1,serde --lib
+cargo +1.88.0 check --no-default-features --features bladerf2 --lib
 
 ###########################################################
 # BUILD (ci.yml: test-linux)
 ###########################################################
 cargo build --features bladerf1
 cargo build --no-default-features --features bladerf1,tokio
-for features in smol tokio bladerf1 bladerf1,smol bladerf1,tokio bladerf1,serde xb100,smol xb200,smol xb300,smol bladerf1,smol,tokio; do
+for features in smol tokio bladerf1 bladerf1,smol bladerf1,tokio bladerf1,serde xb100,smol xb200,smol xb300,smol bladerf1,smol,tokio bladerf2 bladerf2,smol bladerf2,tokio bladerf1,bladerf2; do
   cargo check --no-default-features --features "$features" --lib
 done
 
@@ -73,12 +74,14 @@ fi
 cargo clippy --workspace --features bladerf1 --all-targets -- -D warnings
 cargo clippy --no-default-features --features bladerf1,xb100,xb200,xb300,tokio --all-targets -- -D warnings
 cargo clippy --no-default-features --features bladerf1,serde --all-targets -- -D warnings
+cargo clippy --no-default-features --features bladerf2 --lib --test bladerf2 -- -D warnings
 # Nightly clippy is the early warning (continue-on-error in CI): lints that
 # are warn-by-default on nightly today become CI failures on the next
 # stable. Fix them now or `#[allow]` them deliberately.
 cargo +nightly clippy --workspace --features bladerf1 --all-targets -- -D warnings
 cargo +nightly clippy --no-default-features --features bladerf1,xb100,xb200,xb300,tokio --all-targets -- -D warnings
 cargo +nightly clippy --no-default-features --features bladerf1,serde --all-targets -- -D warnings
+cargo +nightly clippy --no-default-features --features bladerf2 --lib --test bladerf2 -- -D warnings
 
 ###########################################################
 # FMT (ci.yml: fmt)
@@ -92,6 +95,7 @@ cargo +nightly fmt --all --check
 rustup target add wasm32-unknown-unknown
 cargo check --target wasm32-unknown-unknown --features bladerf1 --lib
 cargo check --target wasm32-unknown-unknown --no-default-features --features bladerf1,serde --lib
+cargo check --target wasm32-unknown-unknown --no-default-features --features bladerf2 --lib
 cargo check --target wasm32-unknown-unknown --no-default-features --features bladerf1,xb200 --test public_api
 
 ###########################################################

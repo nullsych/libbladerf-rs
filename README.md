@@ -23,7 +23,7 @@ metadata remains 0.5.2 until release. See [MIGRATION.md](MIGRATION.md).
 | Flag        | Default | Effect                                  |
 |-------------|---------|-----------------------------------------|
 | `bladerf1`  | yes\*   | BladeRF1 support (x40/x115)            |
-| `bladerf2`  | no      | BladeRF2 support — **early, device identification only** (implies `bladerf1`) |
+| `bladerf2`  | no      | BladeRF2 support — **early, device identification only** |
 | `xb100`     | yes     | XB-100 LED expansion board             |
 | `xb200`     | yes     | XB-200 transverter board               |
 | `xb300`     | yes     | XB-300 amplifier board                 |
@@ -263,8 +263,9 @@ rf.check_compatibility().wait()?;
 ```
 
 RF control (AD9361), streaming, FPGA loading and flashing are not implemented
-yet. The feature currently implies `bladerf1`, because the shared NIOS/USB
-core still depends on BladeRF1 types.
+yet. `bladerf2` is independent of `bladerf1`: either can be enabled alone, or
+both together (`--no-default-features --features bladerf2` builds a
+BladeRF2-only driver).
 
 ## Examples
 

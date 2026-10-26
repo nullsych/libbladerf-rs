@@ -43,8 +43,7 @@ default = ["xb100", "xb200", "xb300"]
 bladerf1 = []
 
 # BladeRF2 support (xA4/xA5/xA9) — early, device identification only.
-# Implies bladerf1 until the shared NIOS/USB core no longer depends on it.
-bladerf2 = ["bladerf1"]
+bladerf2 = []
 
 # JSON DC calibration table serialization: serde derives on the calibration
 # types plus `DcCalTable::load`/`save` and the filesystem auto-load helpers.

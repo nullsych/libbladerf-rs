@@ -6,7 +6,7 @@ use crate::bladerf2::board::compatibility;
 use crate::error::{Error, Result};
 use crate::flash::FpgaSize;
 use crate::maybe_future::Op;
-use crate::usb::{BladeRf1DeviceCommands, BladeRf1UsbInterfaceCommands, UsbInterfaceCommands};
+use crate::usb::{Fx3DeviceCommands, Fx3UsbInterfaceCommands, UsbInterfaceCommands};
 use crate::version::SemanticVersion;
 use nusb::MaybeFuture;
 
