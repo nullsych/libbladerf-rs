@@ -120,7 +120,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: |
-          for manifest in examples/*/Cargo.toml; do
+          for manifest in examples/*/*/Cargo.toml; do
             cargo build --manifest-path "$manifest"
           done
 
@@ -145,9 +145,12 @@ jobs:
     name: Conventional Commits
     runs-on: ubuntu-latest
     steps:
+      # On pull_request, check out the PR head instead of GitHub's synthetic
+      # merge commit, which is not a Conventional Commit.
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: ./.github/actions/git-cliff
       - run: git-cliff --unreleased --output /dev/null
 

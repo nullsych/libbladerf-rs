@@ -126,7 +126,7 @@ cargo doc --features bladerf1 --no-deps --lib --bins --examples
 ###########################################################
 # EXAMPLES (ci.yml: build-examples)
 ###########################################################
-for manifest in examples/*/Cargo.toml; do
+for manifest in examples/*/*/Cargo.toml; do
   cargo build --manifest-path "$manifest"
 done
 
