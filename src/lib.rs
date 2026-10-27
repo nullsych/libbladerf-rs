@@ -8,15 +8,16 @@
 //!
 //! | Flag        | Default | Effect                                  |
 //! |-------------|---------|-----------------------------------------|
-//! | `bladerf1`  | yes*    | BladeRF1 support (x40/x115)            |
+//! | `bladerf1`  | yes     | BladeRF1 support (x40/x115)            |
 //! | `bladerf2`  | no      | BladeRF2 support — **early, device identification only** |
-//! | `xb100`     | yes     | XB-100 expansion board support         |
-//! | `xb200`     | yes     | XB-200 transverter board support       |
-//! | `xb300`     | yes     | XB-300 amplifier board support         |
+//! | `xb100`     | yes     | XB-100 expansion board (requires `bladerf1`) |
+//! | `xb200`     | yes     | XB-200 transverter board (requires `bladerf1`) |
+//! | `xb300`     | yes     | XB-300 amplifier board (requires `bladerf1`) |
 //! | `smol`      | no      | nusb `smol` runtime integration         |
 //! | `tokio`     | no      | nusb `tokio` runtime integration        |
 //!
-//! \* Enabled implicitly by the `xb100`, `xb200`, or `xb300` features.
+//! The expansion boards exist only for the BladeRF1: enabling `xb100`, `xb200`
+//! or `xb300` without `bladerf1` is a compile error.
 //!
 //! # Session-based USB model
 //!
@@ -61,6 +62,13 @@
 
 #![deny(missing_docs, missing_debug_implementations)]
 
+#[cfg(all(
+    any(feature = "xb100", feature = "xb200", feature = "xb300"),
+    not(feature = "bladerf1")
+))]
+compile_error!(
+    "xb100/xb200/xb300 are BladeRF1 expansion boards and require the `bladerf1` feature"
+);
 #[cfg(feature = "bladerf1")]
 pub mod bladerf1;
 #[cfg(feature = "bladerf2")]

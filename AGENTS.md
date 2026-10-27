@@ -210,16 +210,16 @@ Implementation rules (see `src/maybe_future.rs` and `MIGRATION.md`; `ASYNC_PLAN.
 
 | Flag | Default | Effect |
 |------|---------|--------|
-| `bladerf1` | yes (via xb*) | BladeRF1 support (x40/x115) |
+| `bladerf1` | yes | BladeRF1 support (x40/x115) |
 | `bladerf2` | no | BladeRF2 support (xA4/xA5/xA9) — **early, device identification only**; independent of `bladerf1` |
-| `xb100` | yes | XB-100 expansion board (implies `bladerf1`) |
-| `xb200` | yes | XB-200 expansion board (implies `bladerf1`) |
-| `xb300` | yes | XB-300 expansion board (implies `bladerf1`) |
+| `xb100` | yes | XB-100 expansion board (requires `bladerf1`) |
+| `xb200` | yes | XB-200 expansion board (requires `bladerf1`) |
+| `xb300` | yes | XB-300 expansion board (requires `bladerf1`) |
 | `smol` | no | `nusb/smol` — async syscalls on the `blocking` thread pool |
 | `tokio` | no | `nusb/tokio` — async syscalls via `spawn_blocking` |
 | `serde` | no | DC calibration table JSON (`serde`/`serde_json`): serde derives on the calibration types, `DcCalTable::load`/`save`, and filesystem auto-load |
 
-Default features enable all three expansion board features (which each imply `bladerf1`); no async runtime is enabled by default. `smol`/`tokio` are opt-in and needed only to `.await` on native targets (`.wait()` is runtime-free); neither is needed on wasm32. `serde` is opt-in: the crate carries no `serde`/`serde_json` dependency unless it is enabled, and without it the device does not auto-load `<serial>_dc_rx.json`/`<serial>_dc_tx.json`. The always-available calibration surface is `DcCalTable::new`/`lookup` plus `set_dc_cal_table`/`clear_dc_cal_table`.
+Default features enable `bladerf1` and all three expansion board features. The expansion boards are BladeRF1-only: `xb*` do not imply `bladerf1` but require it, enforced by a `compile_error!` in `src/lib.rs` (so `--no-default-features --features bladerf2,xb200` fails; CI checks that it does). `bladerf1` and `bladerf2` may be enabled together; no async runtime is enabled by default. `smol`/`tokio` are opt-in and needed only to `.await` on native targets (`.wait()` is runtime-free); neither is needed on wasm32. `serde` is opt-in: the crate carries no `serde`/`serde_json` dependency unless it is enabled, and without it the device does not auto-load `<serial>_dc_rx.json`/`<serial>_dc_tx.json`. The always-available calibration surface is `DcCalTable::new`/`lookup` plus `set_dc_cal_table`/`clear_dc_cal_table`.
 
 ## C reference implementation
 

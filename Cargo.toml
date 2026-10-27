@@ -37,7 +37,7 @@ tokio = { version = "1", features = ["rt", "macros", "time"] }
 criterion = { version = "0.8", features = ["html_reports"] }
 
 [features]
-default = ["xb100", "xb200", "xb300"]
+default = ["bladerf1", "xb100", "xb200", "xb300"]
 
 # BladeRF1 support (x40/x115)
 bladerf1 = []
@@ -49,10 +49,11 @@ bladerf2 = []
 # types plus `DcCalTable::load`/`save` and the filesystem auto-load helpers.
 serde = ["dep:serde", "dep:serde_json"]
 
-# Expansion board support (requires bladerf1)
-xb100 = ["bladerf1"]
-xb200 = ["bladerf1"]
-xb300 = ["bladerf1"]
+# Expansion board support (BladeRF1 only; requires bladerf1, see the
+# compile_error! in src/lib.rs)
+xb100 = []
+xb200 = []
+xb300 = []
 
 # Async runtime integration for nusb's blocking operations (device open,
 # interface claim, alternate setting, clear halt), mirroring nusb's own
@@ -65,7 +66,7 @@ xb300 = ["bladerf1"]
 smol = ["nusb/smol"]
 tokio = ["nusb/tokio"]
 
-# Configure docs.rs. Default features provide bladerf1 (via xb100/xb200/xb300);
+# Configure docs.rs. Default features provide bladerf1 and xb100/xb200/xb300;
 # the opt-in `bladerf2` (early, device identification only), `serde` and runtime
 # (`smol`/`tokio`) features are listed so their APIs appear in the docs.
 [package.metadata.docs.rs]

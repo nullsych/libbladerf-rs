@@ -22,11 +22,11 @@ metadata remains 0.5.2 until release. See [MIGRATION.md](MIGRATION.md).
 
 | Flag        | Default | Effect                                  |
 |-------------|---------|-----------------------------------------|
-| `bladerf1`  | yes\*   | BladeRF1 support (x40/x115)            |
+| `bladerf1`  | yes     | BladeRF1 support (x40/x115)            |
 | `bladerf2`  | no      | BladeRF2 support — **early, device identification only** |
-| `xb100`     | yes     | XB-100 LED expansion board             |
-| `xb200`     | yes     | XB-200 transverter board               |
-| `xb300`     | yes     | XB-300 amplifier board                 |
+| `xb100`     | yes     | XB-100 LED expansion board (requires `bladerf1`) |
+| `xb200`     | yes     | XB-200 transverter board (requires `bladerf1`) |
+| `xb300`     | yes     | XB-300 amplifier board (requires `bladerf1`) |
 | `smol`      | no      | nusb `smol` integration (`blocking` thread pool) |
 | `tokio`     | no      | nusb `tokio` integration (`spawn_blocking`)     |
 | `serde`     | no      | DC calibration table JSON load/save and serde derives |
@@ -37,7 +37,11 @@ alternate-setting switches and clear-halt through the selected runtime's
 blocking pool. Neither is a default feature, and neither is needed for the
 blocking `.wait()` path or on wasm32. If both are enabled nusb uses `smol`.
 
-\* Enabled implicitly by `xb100`, `xb200`, or `xb300`.
+The expansion boards exist only for the BladeRF1, so `xb100`/`xb200`/`xb300`
+require `bladerf1`: enabling one without it is a compile error (e.g.
+`--no-default-features --features bladerf2,xb200`). They no longer enable
+`bladerf1` implicitly; with `default-features = false`, list `bladerf1`
+explicitly (`features = ["bladerf1", "xb200"]`).
 
 ## Usage
 
