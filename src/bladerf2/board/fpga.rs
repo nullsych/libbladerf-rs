@@ -1,13 +1,10 @@
 //! FPGA status, version, source, and bitstream size.
 
 use crate::bladerf2::board::RfLinkSession;
-use crate::bladerf2::board::capabilities::Capabilities;
-use crate::bladerf2::board::compatibility;
 use crate::error::{Error, Result};
 use crate::flash::FpgaSize;
 use crate::maybe_future::Op;
-use crate::usb::{Fx3DeviceCommands, Fx3UsbInterfaceCommands, UsbInterfaceCommands};
-use crate::version::SemanticVersion;
+use crate::usb::{Fx3UsbInterfaceCommands, UsbInterfaceCommands, VendorRequest};
 use nusb::MaybeFuture;
 
 /// Bitstream size in bytes of the xA4 (Cyclone V 49 kLE) FPGA.
@@ -70,51 +67,15 @@ impl RfLinkSession<'_> {
             .map_ok(|version| version.to_string())
     }
 
-    async fn versions(&mut self) -> Result<(SemanticVersion, SemanticVersion)> {
-        let firmware = self.device.fx3_firmware_version().await?.parse()?;
-        let fpga = self.nios.nios_get_fpga_version().await?;
-        Ok((firmware, fpga))
-    }
-
-    /// Returns the capabilities of the connected firmware and FPGA.
-    pub fn capabilities(&mut self) -> impl MaybeFuture<Output = Result<Capabilities>> {
-        Op::new(async move {
-            let (firmware, fpga) = self.versions().await?;
-            Ok(Capabilities::from_versions(firmware, fpga))
-        })
-    }
-
-    /// Checks the firmware and FPGA versions against libbladeRF's
-    /// compatibility tables.
-    ///
-    /// # Errors
-    /// Returns [`Error::UpdateFirmware`] or [`Error::UpdateFpga`] naming the
-    /// side that must be updated.
-    pub fn check_compatibility(&mut self) -> impl MaybeFuture<Output = Result<()>> {
-        Op::new(async move {
-            let (firmware, fpga) = self.versions().await?;
-            compatibility::check(firmware, fpga)
-        })
-    }
-
     /// Queries whether the currently loaded FPGA came from flash or was loaded
     /// by the host.
-    ///
-    /// # Errors
-    /// Returns [`Error::Unsupported`] for firmware older than 2.3.1.
     pub fn get_fpga_source(&mut self) -> impl MaybeFuture<Output = Result<FpgaSource>> {
         Op::new(async move {
-            let firmware = self.device.fx3_firmware_version().await?.parse()?;
-            if !Capabilities::from_firmware(firmware).contains(Capabilities::FW_FPGA_SOURCE) {
-                return Err(Error::Unsupported(
-                    "FPGA source query requires firmware 2.3.1",
-                ));
-            }
             let result = self
                 .nios
                 .control()
                 .await?
-                .usb_vendor_cmd_int(crate::usb::VendorRequest::QueryFpgaSource)
+                .usb_vendor_cmd_int(VendorRequest::QueryFpgaSource)
                 .await?;
             FpgaSource::try_from(result as u8)
         })

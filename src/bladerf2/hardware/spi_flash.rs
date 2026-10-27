@@ -1,13 +1,10 @@
 //! SPI flash access model.
 //!
-//! Page reads, calibration cache access, and flash geometry detection through
-//! USB vendor commands. Port of the read paths of `driver/spi_flash.c` and
-//! `spi_flash_decode_flash_architecture()` from `board/bladerf1/flash.c`,
-//! which libbladeRF shares between both boards.
+//! Page reads and calibration cache access through USB vendor commands.
+//! Port of the read paths of `driver/spi_flash.c`.
 
 use crate::bladerf2::board::FlashSession;
 use crate::error::{Error, Result};
-use crate::flash::{FpgaSize, decode_flash_size};
 use crate::maybe_future::Op;
 use nusb::MaybeFuture;
 
@@ -29,42 +26,6 @@ pub const BLADERF_FLASH_ADDR_CAL: u32 = 0x00030000;
 pub const BLADERF_FLASH_BYTE_LEN_CAL: usize = 0x100;
 /// Flash address of the FPGA bitstream region.
 pub const BLADERF_FLASH_ADDR_FPGA: u32 = 0x00040000;
-
-/// JEDEC manufacturer and device ID of the SPI flash chip.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FlashId {
-    /// JEDEC manufacturer ID (e.g. `0xEF` for Winbond).
-    pub manufacturer: u8,
-    /// JEDEC device ID.
-    pub device: u8,
-}
-
-impl FlashId {
-    pub(crate) fn from_query(result: u32) -> Self {
-        Self {
-            manufacturer: ((result >> 8) & 0xFF) as u8,
-            device: (result & 0xFF) as u8,
-        }
-    }
-
-    /// Returns the flash capacity in bytes for a known chip.
-    ///
-    /// # Errors
-    /// Returns [`Error::Unsupported`] for an unknown manufacturer or device.
-    pub fn size_bytes(self) -> Result<u32> {
-        decode_flash_size(self.manufacturer, self.device)
-    }
-}
-
-/// Flash capacity assumed when the chip cannot be identified.
-///
-/// Matches libbladeRF: xA9 boards carry 128 Mbit, all others 32 Mbit.
-pub(crate) fn assumed_flash_size(fpga_size: Option<FpgaSize>) -> u32 {
-    match fpga_size {
-        Some(FpgaSize::A9) => 128 << 17,
-        _ => 32 << 17,
-    }
-}
 
 impl FlashSession<'_> {
     /// Reads the on-device calibration cache into the provided buffer.
@@ -95,13 +56,6 @@ impl FlashSession<'_> {
             let page = self.flash_meta.page(page)?;
             self.read_page_index(page, buf).await
         })
-    }
-
-    /// Returns the JEDEC ID of the flash chip, if the firmware reported one.
-    ///
-    /// `None` when the firmware predates the flash ID query (< 2.3.0).
-    pub fn flash_id(&self) -> Option<FlashId> {
-        self.flash_id
     }
 
     /// Returns the total flash capacity in bytes.
@@ -144,32 +98,5 @@ impl FlashSession<'_> {
                 .await?;
             Ok(())
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn flash_id_splits_the_query_word() {
-        let id = FlashId::from_query(0x0000_EF17);
-        assert_eq!(
-            id,
-            FlashId {
-                manufacturer: 0xEF,
-                device: 0x17
-            }
-        );
-        assert_eq!(id.size_bytes().unwrap(), 16 << 20);
-        assert!(FlashId::from_query(0x0000_EF99).size_bytes().is_err());
-    }
-
-    #[test]
-    fn unknown_chip_falls_back_by_fpga_size() {
-        assert_eq!(assumed_flash_size(Some(FpgaSize::A9)), 16 << 20);
-        assert_eq!(assumed_flash_size(Some(FpgaSize::A4)), 4 << 20);
-        assert_eq!(assumed_flash_size(Some(FpgaSize::A5)), 4 << 20);
-        assert_eq!(assumed_flash_size(None), 4 << 20);
     }
 }

@@ -13,22 +13,19 @@
 //! checker guarantees that at most one session is active at a time.
 
 pub(crate) mod calibration;
-pub mod capabilities;
-mod compatibility;
 mod debug;
 mod firmware;
 pub(crate) mod fpga;
-use crate::bladerf2::hardware::spi_flash::{FlashId, FlashMeta, assumed_flash_size};
+use crate::bladerf2::hardware::spi_flash::FlashMeta;
 use crate::error::Error;
+use crate::flash::decode_flash_size;
 use crate::maybe_future::{Op, await_maybe, sleep};
 use crate::nios_client::NiosCore;
 use crate::usb::{
-    DeviceCommands, Fx3DeviceCommands, Fx3UsbInterfaceCommands, UsbAltSetting,
-    UsbInterfaceCommands, UsbTransport, VendorRequest,
+    DeviceCommands, Fx3UsbInterfaceCommands, UsbAltSetting, UsbInterfaceCommands, UsbTransport,
+    VendorRequest,
 };
-use crate::version::SemanticVersion;
 pub use calibration::DEFAULT_VCTCXO_TRIM;
-pub use capabilities::Capabilities;
 pub use fpga::{
     BLADERF_FLASH_FPGA_SIZE_A4, BLADERF_FLASH_FPGA_SIZE_A5, BLADERF_FLASH_FPGA_SIZE_A9, FpgaSource,
     fpga_bytes,
@@ -58,9 +55,6 @@ fn is_bladerf2(dev: &DeviceInfo) -> bool {
 ///
 /// Every I/O method returns a [`MaybeFuture`]: call `.wait()` to block the
 /// current thread (native targets only) or `.await` it from async code.
-///
-/// On construction the FX3 firmware version is checked against the
-/// compatibility table and the device waits for firmware readiness.
 pub struct BladeRf2 {
     device: Device,
     nios: NiosCore,
@@ -85,13 +79,6 @@ impl BladeRf2 {
             log::debug!("Product: {product:?}");
             log::debug!("Serial: {serial:?}");
             log::debug!("Speed: {:?}", device.speed());
-            let firmware: SemanticVersion = device.fx3_firmware_version().await?.parse()?;
-            log::debug!("Firmware: v{firmware}");
-            log::trace!(
-                "Firmware capabilities: {:?}",
-                Capabilities::from_firmware(firmware)
-            );
-            compatibility::check_firmware(firmware)?;
             let interface = await_maybe(device.detach_and_claim_interface(0)).await?;
             let speed = device.speed().ok_or(Error::UnsupportedSpeed)?;
             if speed < Speed::High {
@@ -164,9 +151,8 @@ impl BladeRf2 {
     /// The device must be a BladeRF2; no VID/PID check is performed.
     ///
     /// # Errors
-    /// Returns [`Error::UpdateFirmware`] for firmware older than 2.0.0, or an
-    /// error if interface 0 cannot be claimed, the bus speed is below
-    /// High-Speed, or the firmware never reports ready.
+    /// Returns an error if interface 0 cannot be claimed, the bus speed is
+    /// below High-Speed, or the firmware never reports ready.
     pub fn from_device(device: Device) -> impl MaybeFuture<Output = crate::Result<Self>> {
         Self::build(device)
     }
@@ -191,58 +177,31 @@ impl BladeRf2 {
         })
     }
 
-    /// Creates a [`FlashSession`] for SPI flash and calibration access.
-    ///
-    /// Identifies the flash chip by its JEDEC ID (firmware >= 2.3.0). When
-    /// the chip is unknown or cannot be queried, the capacity is derived
-    /// from the FPGA size in the calibration region, as libbladeRF does:
-    /// 128 Mbit for xA9, 32 Mbit otherwise.
+    /// Creates a [`FlashSession`] for SPI flash access.
     ///
     /// # Errors
     /// Returns [`Error::StreamsActive`] for any live stream claim.
     pub fn flash_session(&mut self) -> impl MaybeFuture<Output = crate::Result<FlashSession<'_>>> {
         Op::new(async move {
             self.nios.streams.require_idle()?;
-            let firmware: SemanticVersion = self.device.fx3_firmware_version().await?.parse()?;
             self.nios
                 .usb_change_setting(UsbAltSetting::SpiFlash)
                 .await?;
-            let flash_id =
-                if Capabilities::from_firmware(firmware).contains(Capabilities::FW_FLASH_ID) {
-                    let result = self
-                        .nios
-                        .control()
-                        .await?
-                        .usb_vendor_cmd_int(VendorRequest::QueryFlashId)
-                        .await?;
-                    Some(FlashId::from_query(result))
-                } else {
-                    log::debug!(
-                        "FX3 firmware v{firmware} does not support SPI flash ID. \
-                     A firmware update is recommended."
-                    );
-                    None
-                };
-            let size = match flash_id.map(FlashId::size_bytes) {
-                Some(Ok(size)) => size,
-                decoded => {
-                    if let Some(Err(e)) = decoded {
-                        log::debug!("Could not decode flash ID {flash_id:x?}: {e}");
-                    }
-                    let cal = self.nios.control().await?.read_calibration_page().await?;
-                    let fpga_size = calibration::fpga_size_from_cal(&cal).ok();
-                    let size = assumed_flash_size(fpga_size);
-                    log::debug!(
-                        "Assuming {} Mbit SPI flash for FPGA size {fpga_size:?}",
-                        size >> 17
-                    );
-                    size
-                }
-            };
+
+            let result = self
+                .nios
+                .control()
+                .await?
+                .usb_vendor_cmd_int(VendorRequest::QueryFlashId)
+                .await?;
+
+            let manufacturer_id = ((result >> 8) & 0xFF) as u8;
+            let device_id = (result & 0xFF) as u8;
+            let flash_size_bytes = decode_flash_size(manufacturer_id, device_id)?;
+
             Ok(FlashSession {
                 nios: &mut self.nios,
-                flash_meta: FlashMeta::new(size)?,
-                flash_id,
+                flash_meta: FlashMeta::new(flash_size_bytes)?,
             })
         })
     }
@@ -253,11 +212,12 @@ impl BladeRf2 {
 /// Borrows `&mut NiosCore` from [`BladeRf2`], so the borrow checker prevents
 /// concurrent access.
 pub struct RfLinkSession<'a> {
+    #[allow(dead_code)]
     device: &'a Device,
     pub(crate) nios: &'a mut NiosCore,
 }
 
-/// Session for SPI flash and calibration data access.
+/// Session for SPI flash read/write/erase operations.
 ///
 /// Owns flash metadata queried from the device at session creation.
 /// Returns [`Error::StreamsActive`] if any stream holds an endpoint claim when
@@ -265,5 +225,4 @@ pub struct RfLinkSession<'a> {
 pub struct FlashSession<'a> {
     pub(crate) nios: &'a mut NiosCore,
     pub(crate) flash_meta: FlashMeta,
-    pub(crate) flash_id: Option<FlashId>,
 }

@@ -4,15 +4,11 @@ use libbladerf_rs::flash::FpgaSize;
 use libbladerf_rs::{MaybeFuture, Result};
 
 #[test]
-fn flash_id_is_known_and_matches_geometry() -> Result<()> {
-    logging_init("bladerf2_flash_id");
+fn geometry_is_consistent() -> Result<()> {
+    logging_init("bladerf2_flash");
     let mut dev = open();
     let flash = dev.flash_session().wait()?;
-    let id = flash
-        .flash_id()
-        .expect("firmware >= 2.3.0 reports a flash ID");
-    println!("flash ID: {id:x?}, {} Mbit", flash.size_bytes() >> 17);
-    assert_eq!(id.size_bytes()?, flash.size_bytes());
+    println!("flash: {} Mbit", flash.size_bytes() >> 17);
     assert_eq!(flash.total_pages() * 256, flash.size_bytes());
     assert_eq!(flash.total_sectors() * 65_536, flash.size_bytes());
     assert_eq!(
@@ -24,7 +20,7 @@ fn flash_id_is_known_and_matches_geometry() -> Result<()> {
 
 #[test]
 fn calibration_region_holds_bladerf2_fpga_size_and_trim() -> Result<()> {
-    logging_init("bladerf2_flash_id");
+    logging_init("bladerf2_flash");
     let mut dev = open();
     let mut flash = dev.flash_session().wait()?;
     let fpga_size = flash.read_flash_fpga_size().wait()?;

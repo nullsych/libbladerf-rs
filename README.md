@@ -249,7 +249,6 @@ BladeRF1 file layout and API shape (`BladeRf2`, `RfLinkSession`,
 - SPI flash JEDEC ID and size, with libbladeRF's fallback when the chip is unknown
 - calibration region: FPGA size (xA4/xA5/xA9) and VCTCXO trim
 - FPGA status, version and source
-- version-derived `Capabilities` and the firmware/FPGA compatibility table
 
 ```rust
 use libbladerf_rs::MaybeFuture;
@@ -259,7 +258,6 @@ let mut dev = BladeRf2::from_first().wait()?;
 let fpga_size = dev.flash_session().wait()?.read_flash_fpga_size().wait()?;
 let mut rf = dev.rf_link_session().wait()?;
 println!("{fpga_size:?}, FPGA v{}", rf.fpga_version().wait()?);
-rf.check_compatibility().wait()?;
 ```
 
 RF control (AD9361), streaming, FPGA loading and flashing are not implemented
@@ -275,7 +273,7 @@ Git-tracked examples live in `examples/bladerf1/` and `examples/bladerf2/`
 | Package | Purpose |
 |---------|---------|
 | `info` | Basic device info and FPGA version |
-| `info-bladerf2` | BladeRF2 identification: versions, FPGA size/source, flash, calibration, capabilities |
+| `info-bladerf2` | BladeRF2 identification: versions, FPGA size/source, flash, calibration |
 | `rx-tx` | Plain SC16 RX and a TX helper with explicit lifecycle |
 | `rx-async` | RX streaming with the awaited API on tokio (`--features tokio`) |
 | `calibrate` | DC calibration on LMS6002D |

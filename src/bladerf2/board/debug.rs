@@ -22,7 +22,6 @@ impl fmt::Debug for FlashSession<'_> {
         f.debug_struct("FlashSession")
             .field("connection", &self.nios)
             .field("geometry", &self.flash_meta)
-            .field("flash_id", &self.flash_id)
             .finish_non_exhaustive()
     }
 }

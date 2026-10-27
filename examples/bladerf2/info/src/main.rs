@@ -15,7 +15,6 @@ fn main() -> Result<()> {
 
     {
         let mut flash = bladerf2.flash_session().wait()?;
-        log::info!("Flash ID: {:x?}", flash.flash_id());
         log::info!(
             "Flash size: {} Mbit ({} pages, {} sectors)",
             flash.size_bytes() >> 17,
@@ -39,9 +38,6 @@ fn main() -> Result<()> {
     if rf.is_fpga_configured().wait()? {
         log::info!("FPGA: {}", rf.fpga_version().wait()?);
         log::info!("FPGA source: {:?}", rf.get_fpga_source().wait()?);
-        log::info!("Capabilities: {:?}", rf.capabilities().wait()?);
-        rf.check_compatibility().wait()?;
-        log::info!("Firmware and FPGA are compatible");
     } else {
         log::warn!("FPGA is not configured");
     }

@@ -1,9 +1,9 @@
 use super::common::*;
-use libbladerf_rs::bladerf2::{Capabilities, FpgaSource};
+use libbladerf_rs::bladerf2::FpgaSource;
 use libbladerf_rs::{MaybeFuture, Result, SemanticVersion};
 
 #[test]
-fn versions_parse_and_are_compatible() -> Result<()> {
+fn versions_parsed() -> Result<()> {
     logging_init("bladerf2_fpga");
     let mut dev = open();
     let firmware = dev.firmware_version().wait()?;
@@ -11,11 +11,6 @@ fn versions_parse_and_are_compatible() -> Result<()> {
     assert!(rf.is_fpga_configured().wait()?, "FPGA must be loaded");
     let fpga: SemanticVersion = rf.fpga_version().wait()?.parse()?;
     println!("firmware v{firmware}, FPGA v{fpga}");
-    assert!(firmware >= SemanticVersion::new(2, 0, 0));
-    rf.check_compatibility().wait()?;
-    let caps = rf.capabilities().wait()?;
-    assert_eq!(caps, Capabilities::from_versions(firmware, fpga));
-    assert!(caps.contains(Capabilities::FW_SUPPORTS_BLADERF2));
     Ok(())
 }
 
