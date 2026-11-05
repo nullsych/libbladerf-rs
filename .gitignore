@@ -19,6 +19,8 @@ docs/
 resources/5G
 resources/bladeRF
 resources/kalibrate-bladeRF
+# no-OS C software drivers for ad9361  
+resources/ad9361/
 fuzz/
 examples/kalibrate
 examples/kalibrate-5g
